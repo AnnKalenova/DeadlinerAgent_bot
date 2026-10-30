@@ -28,7 +28,12 @@ _STOP_WORDS = {
     "найди", "найти", "поищи", "когда", "где", "был", "была", "было", "будет", "ставил", "задачу",
     "задача", "запись", "пожалуйста",
 }
-_MAX_EMBED_PER_SEARCH = 200  # сколько недостающих эмбеддингов можно досчитать за один поиск
+# сколько недостающих эмбеддингов можно досчитать за один поиск (24 штуки - около 3 сек).
+# остальные записи в этом поиске сравниваются только по словам, а эмбеддинги для них досчитаются позже
+_MAX_EMBED_PER_SEARCH = 24
+# эмбеддинги считаем и сохраняем порциями. если считать все 376 названий из /demo одной пачкой,
+# поиск, запущенный в это время, ждет в общей очереди к API больше минуты
+_EMBED_BATCH = 16
 _MIN_KEYWORD_SCORE = 0.5  # какая доля слов запроса (с весами) должна быть в названии, чтобы считать что нашли
 
 
@@ -104,6 +109,7 @@ class Searcher:
         self._embedder = embedder
         self._threshold = semantic_threshold
         self._keyword_weight = keyword_weight
+        self._warming = 0  # сколько прогревов (warm_up) идет прямо сейчас
 
     async def search(self, user_id: int, query: str, now: datetime, *, item_type: ItemType | None = None,
                      scope: str | None = None, limit: int = 5) -> list[Hit]:
@@ -136,18 +142,24 @@ class Searcher:
         """заранее считает эмбеддинги, например сразу после /demo"""
         if not self._embedder:
             return
+        self._warming += 1
         try:
             await self._embeddings(list(dict.fromkeys(titles)), limit=None)
         except Exception as exc:
             # не критично: недостающие эмбеддинги посчитаются во время поиска
             log.warning("Embeddings warm-up stopped: %s", exc)
+        finally:
+            self._warming -= 1
 
     async def _semantic_scores(self, query: str, items: list[Item]) -> dict[str, float]:
         if not self._embedder:
             return {}
         try:
             titles = list(dict.fromkeys(item.title for item in items))
-            vectors = await self._embeddings(titles, limit=_MAX_EMBED_PER_SEARCH)
+            # пока идет прогрев, сами ничего не досчитываем: берем то, что уже в кеше, остальное ищется по словам.
+            # иначе поиск встанет в очередь к API за всеми названиями из /demo и будет ждать
+            limit = 0 if self._warming else _MAX_EMBED_PER_SEARCH
+            vectors = await self._embeddings(titles, limit=limit)
             query_vector = await self._embedder.embed_query(query)
         except Exception as exc:
             log.warning("Semantic search unavailable, using keywords only: %s", exc)
@@ -165,10 +177,11 @@ class Searcher:
         missing = [title for title in titles if title not in result]
         if limit is not None:
             missing = missing[:limit]
-        if missing:
-            vectors = await self._embedder.embed_documents(missing)
-            for title, vector in zip(missing, vectors):
-                self._storage.put_embedding(keys[title], vector)
+        for first in range(0, len(missing), _EMBED_BATCH):
+            batch = missing[first:first + _EMBED_BATCH]
+            vectors = await self._embedder.embed_documents(batch)
+            for title, vector in zip(batch, vectors):
+                self._storage.put_embedding(keys[title], vector)  # сразу в кеш, чтобы другие поиски уже видели
                 result[title] = vector
         return result
 

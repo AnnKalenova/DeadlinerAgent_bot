@@ -23,7 +23,10 @@ _COMPLETE = re.compile(
     r"\b(?:отметь|пометь)\b.*\b(?:выполн\w*|сделан\w*|готов\w*)"
     r"|\b(?:выполнил\w*|сделал\w*|закрой|заверши)\b|^готово\b"
 )
-_UPDATE = re.compile(r"\b(?:перенеси|перенести|сдвинь|передвинь|перемести|поменяй|измени)\b")
+# для "отметь ... выполненной" из фразы убираем только эти слова, а то, что между ними, - описание записи.
+# если вырезать весь кусок от "отметь" до "выполненной", описание пропадет и отметится не та запись
+_COMPLETE_WORDS = re.compile(r"\b(?:отметь|пометь|выполн\w*|сделан\w*|сделал\w*|готов\w*|закрой|заверши)\b")
+_UPDATE =re.compile(r"\b(?:перенеси|перенести|сдвинь|передвинь|перемести|поменяй|измени)\b")
 _SEARCH = re.compile(
     r"\b(?:найди|найти|поищи|ищи)\b|^(?:а\s+)?когда\b|\bгде\s+(?:моя|мой|мое)\b|\bкогда-то\b"
 )
@@ -165,7 +168,7 @@ class RuleParser:
         if _DELETE.search(low):
             return self._targeted(Intent.DELETE, text, _DELETE)
         if _COMPLETE.search(low):
-            return self._targeted(Intent.COMPLETE, text, _COMPLETE)
+            return self._targeted(Intent.COMPLETE, text, _COMPLETE_WORDS)
         if _UPDATE.search(low):
             return self._update(text, ctx)
         if _SEARCH.search(low):

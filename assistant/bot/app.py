@@ -59,7 +59,7 @@ def setup_logging(settings: Settings) -> None:
 async def run(settings: Settings) -> None:
     setup_logging(settings)
     clock = settings.clock()
-    db = Storage(settings.db_path)
+    db = Storage(settings.db_path, now=settings.now)
 
     speech = None
     embedder = None

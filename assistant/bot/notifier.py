@@ -6,7 +6,7 @@ from datetime import date, datetime
 from html import escape
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramForbiddenError
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from ..domain import Entry, Item, ItemType
@@ -52,3 +52,7 @@ class TelegramNotifier:
         except TelegramForbiddenError:
             # пользователь заблокировал бота, повторять отправку нет смысла
             log.info("Chat %s is not reachable, skipping", chat_id)
+        except TelegramBadRequest as exc:
+            # чата больше нет или Telegram не принял сообщение. повтор не поможет, а без этого
+            # фоновый цикл пытался бы отправить его каждые 30 секунд бесконечно
+            log.warning("Telegram rejected message to %s, skipping: %s", chat_id, exc)

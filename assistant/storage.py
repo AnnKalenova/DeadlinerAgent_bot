@@ -90,10 +90,6 @@ def _dt(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value) if value else None
 
 
-def _now() -> str:
-    return datetime.now().isoformat(timespec="seconds")
-
-
 def _item_values(item: Item, now: str) -> tuple:
     # порядок как в _ITEM_COLUMNS
     return (item.user_id, item.type.value, item.title, _iso(item.start), _iso(item.end), int(item.has_time),
@@ -134,7 +130,10 @@ def _user(row: sqlite3.Row) -> User:
 class Storage:
     """все запросы к базе"""
 
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, now=None):
+        # now - функция текущего времени. бот передает время в своем часовом поясе (TIMEZONE),
+        # чтобы дата создания записи совпадала по поясу с датами самих записей, а не с часами сервера
+        self._clock = now or datetime.now
         if str(path) != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
@@ -144,6 +143,9 @@ class Storage:
 
     def close(self) -> None:
         self._conn.close()
+
+    def _now(self) -> str:
+        return self._clock().isoformat(timespec="seconds")
 
     def _query(self, sql: str, args=()) -> list[sqlite3.Row]:
         return self._conn.execute(sql, args).fetchall()
@@ -155,11 +157,11 @@ class Storage:
     # --- записи ---
 
     def add_item(self, item: Item) -> Item:
-        cursor = self._write(_INSERT_ITEM, _item_values(item, _now()))
+        cursor = self._write(_INSERT_ITEM, _item_values(item, self._now()))
         return self.get_item(item.user_id, cursor.lastrowid)
 
     def add_items(self, items: list[Item]) -> int:
-        now = _now()
+        now = self._now()
         with self._conn:
             self._conn.executemany(_INSERT_ITEM, [_item_values(item, now) for item in items])
         return len(items)
@@ -170,7 +172,7 @@ class Storage:
             " repeat = ?, remind_at = ?, notified = ?, updated_at = ? WHERE id = ? AND user_id = ?",
             (item.type.value, item.title, _iso(item.start), _iso(item.end), int(item.has_time),
              item.status.value, item.repeat.value if item.repeat else None, _iso(item.remind_at),
-             int(item.notified), _now(), item.id, item.user_id),
+             int(item.notified), self._now(), item.id, item.user_id),
         )
         return self.get_item(item.user_id, item.id)
 
@@ -223,6 +225,15 @@ class Storage:
             rows = self._query("SELECT COUNT(*) FROM items WHERE user_id = ?", (user_id,))
         return rows[0][0]
 
+    def update_reminder(self, item: Item, remind_at: datetime | None, notified: bool) -> bool:
+        """меняет только поля напоминания и только если запись не изменилась с тех пор, как ее прочитали
+        (remind_at в базе прежний). так фоновый цикл не затрет перенос или отметку, сделанные в это время"""
+        cursor = self._write(
+            "UPDATE items SET remind_at = ?, notified = ? WHERE id = ? AND user_id = ? AND remind_at IS ?",
+            (_iso(remind_at), int(notified), item.id, item.user_id, _iso(item.remind_at)),
+        )
+        return cursor.rowcount == 1
+
     def due_reminders(self, now: datetime) -> list[Item]:
         """напоминания, время которых уже наступило, а отправить их еще не успели"""
         rows = self._query(
@@ -238,7 +249,7 @@ class Storage:
         self._write(
             "INSERT INTO users (user_id, name, created_at) VALUES (?, ?, ?)"
             " ON CONFLICT (user_id) DO UPDATE SET name = excluded.name",
-            (user_id, name, _now()),
+            (user_id, name, self._now()),
         )
         return self.get_user(user_id)
 
@@ -274,7 +285,7 @@ class Storage:
         with self._conn:
             self._conn.execute(
                 "INSERT INTO messages (user_id, role, text, created_at) VALUES (?, ?, ?, ?)",
-                (user_id, role, text, _now()),
+                (user_id, role, text, self._now()),
             )
             self._conn.execute(
                 "DELETE FROM messages WHERE user_id = ? AND id NOT IN"

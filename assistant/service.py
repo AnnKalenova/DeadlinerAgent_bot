@@ -319,6 +319,12 @@ class Assistant:
         if start and _in_past(start, has_time, now) and not cmd.repeat:
             state.pending = {"kind": ASK_WHEN, "command": cmd.to_dict()}
             return Reply(f"{human_datetime(start, has_time, today).capitalize()} уже прошло. На когда записать «{title}»?")
+        # напоминание на сегодня без времени: о таких бот напоминает в 9:00, а это время уже прошло,
+        # и напоминание бы просто не пришло. поэтому спрашиваем, во сколько напомнить
+        if (item_type is ItemType.REMINDER and start and not has_time and not cmd.repeat
+                and start.date() == today and now.time() >= schedule.UNTIMED_REMINDER_AT):
+            state.pending = {"kind": ASK_TIME, "command": cmd.to_dict()}
+            return Reply(f"Во сколько напомнить «{title}» сегодня?", time_options=self._time_options(today, now))
 
         end = None
         if item_type is ItemType.MEETING and start:

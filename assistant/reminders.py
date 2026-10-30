@@ -61,13 +61,13 @@ class ReminderService:
             except Exception:
                 log.exception("Could not send reminder for item %s, will retry", item.id)
                 continue  # notified не ставим, попробуем на следующем проходе
-            # у повторяющейся записи сразу ставим следующее напоминание
+            # пока сообщение отправлялось, пользователь мог перенести или закрыть запись. поэтому сохраняем
+            # только поля напоминания и только если запись не менялась (иначе старые данные затерли бы новые)
             if item.repeat:
-                item.remind_at = schedule.reminder_time(item, now, self._lead)
-                item.notified = item.remind_at is None
+                next_at = schedule.reminder_time(item, now, self._lead)  # у повторяющейся сразу ставим следующее
+                self._storage.update_reminder(item, next_at, notified=next_at is None)
             else:
-                item.notified = True
-            self._storage.save_item(item)
+                self._storage.update_reminder(item, item.remind_at, notified=True)
         await self._send_digests(now)
 
     async def _send_digests(self, now: datetime) -> None:

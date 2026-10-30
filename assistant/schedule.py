@@ -82,4 +82,13 @@ def occurrence_for_alert(item: Item, alert: datetime, meeting_lead: int) -> date
         return datetime.combine(alert.date(), time())
     if item.repeat is None:
         return item.start
-    return alert + _lead(item, meeting_lead)
+    # последний повтор, который начинается не позже alert + lead. у обычного напоминания это ровно alert + lead,
+    # а после "+15 мин" - тот повтор, о котором напоминали (иначе время встречи сдвинулось бы на 15 минут)
+    target = alert + _lead(item, meeting_lead)
+    found = item.start
+    for n in range(1, _MAX_OCCURRENCES):
+        moment = shift(item.start, item.repeat, n)
+        if moment > target:
+            break
+        found = moment
+    return found

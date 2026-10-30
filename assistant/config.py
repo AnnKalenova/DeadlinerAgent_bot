@@ -46,6 +46,10 @@ class Settings:
         zone = ZoneInfo(self.timezone)
         return lambda: datetime.now(zone).replace(tzinfo=None, second=0, microsecond=0)
 
+    def now(self) -> datetime:
+        """текущее время в часовом поясе из настроек, с секундами. нужно базе для дат создания и изменения"""
+        return datetime.now(ZoneInfo(self.timezone)).replace(tzinfo=None, microsecond=0)
+
 
 def _path(name: str, default: str) -> Path:
     # относительный путь считается от корня проекта, а не от папки, из которой запустили
