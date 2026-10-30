@@ -25,8 +25,8 @@ from ..service import Assistant
 from ..storage import Storage, User
 from ..texts import EXAMPLES, HELP, plural
 from ..yandex import SpeechKit
-from .keyboards import (MENU_ALL, MENU_HELP, MENU_TODAY, MENU_TOMORROW, MENU_WEEK, ActionCb, BrowseCb, ItemCb,
-                        TimeCb, main_menu)
+from .keyboards import (MENU_ALL, MENU_HELP, MENU_TODAY, MENU_TOMORROW, MENU_WEEK, ActionCb, AnswerCb, BrowseCb,
+                        ItemCb, main_menu)
 from .render import render, speech_text
 
 log = logging.getLogger(__name__)
@@ -223,20 +223,34 @@ async def on_item_button(callback: CallbackQuery, callback_data: ItemCb, assista
     elif action == "delete":
         await answer(callback.message, assistant.ask_delete(user.user_id, item_id), clock)
     elif action == "delete_ok":
-        await edit_reply(callback, assistant.delete(user.user_id, item_id), clock)
+        # "Да, удалить" из сообщения старой версии бота: кнопка не привязана к вопросу, поэтому ничего не удаляем
+        await edit_reply(callback, Reply("Эта кнопка устарела. Если нужно удалить запись, попросите ещё раз."), clock)
 
 
-@router.callback_query(TimeCb.filter())
-async def on_time_button(callback: CallbackQuery, callback_data: TimeCb, assistant: Assistant, user: User,
-                         clock, speech):
-    # кнопка со временем работает так же, как если бы пользователь сам написал "в 15:00"
+_YES_NO = {"yes": "да", "no": "нет"}
+
+
+@router.callback_query(AnswerCb.filter())
+async def on_answer_button(callback: CallbackQuery, callback_data: AnswerCb, assistant: Assistant, user: User,
+                           clock, speech):
+    # кнопки под уточняющим вопросом работают так же, как ответ текстом: "в 15:00", "2", "да"
     await callback.answer()
-    value = f"{callback_data.value[:2]}:{callback_data.value[2:]}"
+    value = callback_data.value
+    if value in _YES_NO:
+        text = _YES_NO[value]
+    elif len(value) == 4 and value.isdigit():
+        text = f"в {value[:2]}:{value[2:]}"  # кнопка времени: "1500" -> "в 15:00"
+    else:
+        text = value  # номер записи из списка
+    reply = await assistant.answer_button(user.user_id, callback_data.token, text)
+    if value in _YES_NO:
+        await edit_reply(callback, reply, clock)  # результат удаления показываем на месте вопроса
+        return
     try:
         await callback.message.edit_reply_markup(reply_markup=None)  # убираем кнопки, чтобы их не нажали повторно
     except TelegramBadRequest:
         pass
-    await send_reply(callback.message, await assistant.handle(user.user_id, f"в {value}"), user, clock, speech)
+    await send_reply(callback.message, reply, user, clock, speech)
 
 
 @router.callback_query(BrowseCb.filter())
@@ -256,6 +270,12 @@ async def on_clear_confirmed(callback: CallbackQuery, assistant: Assistant, user
 async def on_cancel(callback: CallbackQuery, assistant: Assistant, user: User, clock):
     await callback.answer()
     await edit_reply(callback, assistant.cancel(user.user_id), clock)
+
+
+@router.callback_query()
+async def on_old_button(callback: CallbackQuery):
+    # кнопки из старых сообщений, формат которых бот уже не знает
+    await callback.answer("Эта кнопка устарела")
 
 
 @router.error()

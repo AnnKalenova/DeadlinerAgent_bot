@@ -64,7 +64,9 @@ class ReminderService:
             # пока сообщение отправлялось, пользователь мог перенести или закрыть запись. поэтому сохраняем
             # только поля напоминания и только если запись не менялась (иначе старые данные затерли бы новые)
             if item.repeat:
-                next_at = schedule.reminder_time(item, now, self._lead)  # у повторяющейся сразу ставим следующее
+                # у повторяющейся сразу ставим следующее напоминание. считаем от начала того повтора,
+                # о котором только что напомнили, иначе бот напомнил бы о нем второй раз
+                next_at = schedule.reminder_time(item, max(now, occurrence), self._lead)
                 self._storage.update_reminder(item, next_at, notified=next_at is None)
             else:
                 self._storage.update_reminder(item, item.remind_at, notified=True)

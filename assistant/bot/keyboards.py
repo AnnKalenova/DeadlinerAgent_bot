@@ -18,12 +18,14 @@ VIEWS = (
 
 
 class ItemCb(CallbackData, prefix="item"):
-    action: str  # open | done | move | delete | delete_ok | snooze
+    action: str  # open | done | move | delete | snooze (delete_ok - только в сообщениях старой версии)
     item_id: int
 
 
-class TimeCb(CallbackData, prefix="time"):
-    value: str  # ЧЧММ без двоеточия, потому что двоеточие aiogram использует как разделитель
+class AnswerCb(CallbackData, prefix="ans"):
+    """кнопка-ответ на уточняющий вопрос. token - метка вопроса: от старого вопроса кнопка не сработает"""
+    token: str
+    value: str  # время ЧЧММ (без двоеточия: им aiogram разделяет поля), номер записи, yes или no
 
 
 class BrowseCb(CallbackData, prefix="browse"):

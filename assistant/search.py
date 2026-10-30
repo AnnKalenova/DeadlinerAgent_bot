@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
-from .dates import normalize
+from .dates import normalize, parse_when, strip_spans
 from .domain import Item, ItemType
 from .storage import Storage
 
@@ -28,6 +28,8 @@ _STOP_WORDS = {
     "найди", "найти", "поищи", "когда", "где", "был", "была", "было", "будет", "ставил", "задачу",
     "задача", "запись", "пожалуйста",
 }
+# общие слова про тип записи. по ним нельзя понять, какую именно запись имеют в виду
+_GENERIC = re.compile(r"^(?:встреч|созвон|совещан|планерк|собеседован|звонок|звонк|митинг|задач|напомин|запис)\w*$|^дел[оа]?$")
 # сколько недостающих эмбеддингов можно досчитать за один поиск (24 штуки - около 3 сек).
 # остальные записи в этом поиске сравниваются только по словам, а эмбеддинги для них досчитаются позже
 _MAX_EMBED_PER_SEARCH = 24
@@ -73,6 +75,18 @@ def stems(text: str) -> list[str]:
 
 def _matches(query_stem: str, title: list[str]) -> bool:
     return any(t.startswith(query_stem) or query_stem.startswith(t) for t in title)
+
+
+def key_words_match(query: str, title: str, now: datetime) -> bool:
+    """есть ли в названии все значимые слова запроса. нужно, когда запись меняют или удаляют:
+    обычный поиск находит и просто похожее, а тут "встречу с Петром" не должно найти встречу с Иваном.
+    не считаются: даты и время ("завтра", "в 15:00") и общие слова про тип записи ("встреча", "задача")"""
+    when = parse_when(query, now)
+    words = _WORD.findall(normalize(strip_spans(query, when.spans)))
+    significant = [stem(w) for w in words
+                   if w not in _STOP_WORDS and (len(w) >= 3 or w.isdigit()) and not _GENERIC.match(w)]
+    title_stems = stems(title)
+    return all(_matches(s, title_stems) for s in significant)
 
 
 def word_weights(query: list[str], titles: list[list[str]]) -> dict[str, float]:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+import secrets
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
@@ -16,7 +17,7 @@ from . import dates, schedule
 from .dates import human_date, human_datetime, period_title, week_start
 from .domain import Browse, Command, Entry, Intent, Item, ItemType, Reply, Status
 from .nlu import ParseContext, Parser
-from .search import Searcher
+from .search import Searcher, key_words_match
 from .storage import Storage
 from .texts import HELP, TYPE_ACCUSATIVE, TYPE_GENITIVE_PLURAL, TYPE_PLURAL, plural
 
@@ -36,7 +37,12 @@ ASK_DELETE = "delete"  # "удалить ...?" да/нет
 
 GONE = "Эта запись уже удалена."
 
-_YES = re.compile(r"^(?:да|ага|угу|удаляй|удали|подтверждаю|конечно|давай)\b")
+# подтверждение удаления - только короткий ответ из таких слов ("да", "да, удаляй", "удали ее").
+# "удали встречу с командой" - это уже новая команда, а не "да" на прошлый вопрос
+_YES = re.compile(
+    r"^(?:да|ага|угу|удаляй|удали|подтверждаю|конечно|давай)"
+    r"(?:[\s,]+(?:да|удаляй|удали|ее|его|конечно|давай|пожалуйста))*[\s.!]*$"
+)
 _NO = re.compile(r"^(?:нет|не\s+надо|не\s+нужно|отмена|отмени|стоп|забудь|не\s+удаляй)\b")
 _CHOICE = re.compile(r"\b(\d{1,2})\b|\b(перв|втор|трет|четверт|пят)(?:ую|ой|ая|ый|ое|ым|ий|ье|ью)\b")
 _CHOICE_ONLY = re.compile(
@@ -95,9 +101,18 @@ class Assistant:
                 command = await self._parser.parse(text, ctx)
                 log.info("user=%s intent=%s", user_id, command.intent.value)
                 reply = await self._execute(user_id, command, state, now)
+            _attach_question(reply, state)
         self._storage.add_message(user_id, "user", text)
         self._storage.add_message(user_id, "assistant", _summary(reply))
         return reply
+
+    async def answer_button(self, user_id: int, token: str, text: str) -> Reply:
+        """нажали кнопку под уточняющим вопросом (время, номер, да/нет). кнопка срабатывает,
+        только если бот все еще ждет ответ именно на этот вопрос, иначе старая кнопка ответила бы на новый"""
+        pending = DialogState.from_dict(self._storage.load_state(user_id)).pending
+        if not pending or pending.get("token") != token:
+            return Reply("Этот вопрос уже неактуален.")
+        return await self.handle(user_id, text)
 
     def agenda(self, user_id: int, period: str) -> Reply:
         """быстрые списки для кнопок меню: "today", "tomorrow" или "week" """
@@ -154,12 +169,7 @@ class Assistant:
             item = self._storage.get_item(user_id, item_id)
             if item is None:
                 return Reply(GONE)
-            return self._confirm_delete(item, state)
-
-    def delete(self, user_id: int, item_id: int) -> Reply:
-        with self._session(user_id) as state:
-            state.pending = None
-            return self._delete_confirmed(user_id, item_id, state)
+            return _attach_question(self._confirm_delete(item, state), state)
 
     def start_reschedule(self, user_id: int, item_id: int) -> Reply:
         with self._session(user_id) as state:
@@ -167,8 +177,9 @@ class Assistant:
             if item is None:
                 return Reply(GONE)
             state.recent = [item.id]
-            state.pending = {"kind": ASK_RESCHEDULE, "item_id": item.id}
-            return Reply(f"На когда перенести «{item.title}»? Например: «завтра в 15:00».")
+            state.pending = _question(ASK_RESCHEDULE, item_id=item.id)
+            reply = Reply(f"На когда перенести «{item.title}»? Например: «завтра в 15:00».")
+            return _attach_question(reply, state)
 
     def snooze(self, user_id: int, item_id: int, minutes: int = 15) -> Reply:
         """кнопка "+15 мин" под напоминанием"""
@@ -307,23 +318,23 @@ class Assistant:
 
         # встрече нужно время, напоминанию хотя бы дата или время. если нет - спрашиваем и пока ничего не сохраняем
         if item_type is ItemType.MEETING and cmd.at is None:
-            state.pending = {"kind": ASK_TIME, "command": cmd.to_dict()}
+            state.pending = _question(ASK_TIME, command=cmd.to_dict())
             day = f" {human_date(cmd.day, today)}" if cmd.day else ""
             return Reply(f"На какое время поставить «{title}»{day}?", time_options=self._time_options(cmd.day, now))
         if item_type is ItemType.REMINDER and cmd.day is None and cmd.at is None:
-            state.pending = {"kind": ASK_WHEN, "command": cmd.to_dict()}
+            state.pending = _question(ASK_WHEN, command=cmd.to_dict())
             return Reply(f"Когда напомнить «{title}»?")
 
         day = cmd.day or (today if cmd.repeat and cmd.at is None else None)
         start, has_time = dates.combine(day, cmd.at, now)
         if start and _in_past(start, has_time, now) and not cmd.repeat:
-            state.pending = {"kind": ASK_WHEN, "command": cmd.to_dict()}
+            state.pending = _question(ASK_WHEN, command=cmd.to_dict())
             return Reply(f"{human_datetime(start, has_time, today).capitalize()} уже прошло. На когда записать «{title}»?")
         # напоминание на сегодня без времени: о таких бот напоминает в 9:00, а это время уже прошло,
         # и напоминание бы просто не пришло. поэтому спрашиваем, во сколько напомнить
         if (item_type is ItemType.REMINDER and start and not has_time and not cmd.repeat
                 and start.date() == today and now.time() >= schedule.UNTIMED_REMINDER_AT):
-            state.pending = {"kind": ASK_TIME, "command": cmd.to_dict()}
+            state.pending = _question(ASK_TIME, command=cmd.to_dict())
             return Reply(f"Во сколько напомнить «{title}» сегодня?", time_options=self._time_options(today, now))
 
         end = None
@@ -388,13 +399,16 @@ class Assistant:
         # по описанию: "перенеси встречу с Иваном"
         if cmd.query:
             hits = await self._searcher.search(user_id, cmd.query, now, item_type=cmd.item_type)
+            # для изменения записи похожести мало: все значимые слова запроса должны быть в названии.
+            # иначе "перенеси встречу с Петром" перенесла бы встречу с Иваном, потому что совпало "встреча"
+            hits = [hit for hit in hits if key_words_match(cmd.query, hit.item.title, now)]
             if not hits:
                 return None, Reply(f"Не нашёл запись «{cmd.query}».")
-            # берем лучшее совпадение, только если оно заметно лучше второго. иначе пользователь выбирает сам
-            if len(hits) == 1 or hits[0].score - hits[1].score >= 0.2:
+            if len(hits) == 1:
                 return hits[0].item, None
+            # подходят несколько - не угадываем, а спрашиваем. ответить можно номером или кнопкой
             state.recent = [hit.item.id for hit in hits]
-            state.pending = {"kind": ASK_CHOICE, "command": cmd.to_dict()}
+            state.pending = _question(ASK_CHOICE, command=cmd.to_dict())
             return None, Reply("Нашёл несколько подходящих записей. Какую из них?",
                                candidates=[hit.item for hit in hits])
 
@@ -412,7 +426,7 @@ class Assistant:
         if cmd.day is None and cmd.at is None:
             if cmd.title:
                 return Reply("Переименовал.", card=self._storage.save_item(item))
-            state.pending = {"kind": ASK_RESCHEDULE, "item_id": item.id}
+            state.pending = _question(ASK_RESCHEDULE, item_id=item.id)
             return Reply(f"На когда перенести «{item.title}»?")
         return self._reschedule(item, cmd.day, cmd.at, state, now)
 
@@ -425,7 +439,7 @@ class Assistant:
             at = item.start.time()
         start, has_time = dates.combine(day, at, now)
         if start and _in_past(start, has_time, now) and not item.repeat:
-            state.pending = {"kind": ASK_RESCHEDULE, "item_id": item.id}
+            state.pending = _question(ASK_RESCHEDULE, item_id=item.id)
             return Reply(f"{human_datetime(start, has_time, now.date()).capitalize()} уже прошло. На когда перенести?")
 
         item.start, item.has_time = start, has_time
@@ -443,7 +457,7 @@ class Assistant:
     def _confirm_delete(self, item: Item, state: DialogState) -> Reply:
         # без подтверждения не удаляем
         state.recent = [item.id]
-        state.pending = {"kind": ASK_DELETE, "item_id": item.id}
+        state.pending = _question(ASK_DELETE, item_id=item.id)
         series = " (все повторы)" if item.repeat else ""
         return Reply(f"Удалить {TYPE_ACCUSATIVE[item.type]} «{item.title}»{series}?", confirm_delete=item)
 
@@ -523,6 +537,17 @@ def _choice(text: str) -> int | None:
     if not m:
         return None
     return int(m.group(1)) if m.group(1) else _ORDINALS[m.group(2)]
+
+
+def _question(kind: str, **data) -> dict:
+    """уточняющий вопрос для состояния диалога. token - метка вопроса, к ней привязаны кнопки ответа"""
+    return {"kind": kind, "token": secrets.token_hex(3), **data}
+
+
+def _attach_question(reply: Reply, state: DialogState) -> Reply:
+    """если бот задал вопрос, помечаем ответ меткой этого вопроса, чтобы кнопки под ним относились именно к нему"""
+    reply.question = state.pending.get("token") if state.pending else None
+    return reply
 
 
 def _in_past(start: datetime, has_time: bool, now: datetime) -> bool:

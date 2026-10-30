@@ -130,3 +130,4 @@ class Reply:
     time_options: list[str] = field(default_factory=list)  # кнопки со временем: "09:00", "10:00"...
     confirm_delete: Item | None = None  # кнопки "Да, удалить" / "Отмена"
     browse: Browse | None = None  # кнопки листания по неделям и фильтры
+    question: str | None = None  # метка уточняющего вопроса (token), если бот его задал: к ней привязаны кнопки ответа

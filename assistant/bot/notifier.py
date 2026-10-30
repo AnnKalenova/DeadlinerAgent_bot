@@ -11,7 +11,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from ..domain import Entry, Item, ItemType
 from .keyboards import ItemCb
-from .render import agenda
+from .render import agenda, fit, short_title
 
 log = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ class TelegramNotifier:
         self._clock = clock
 
     async def send_reminder(self, item: Item, occurrence: datetime, late: bool) -> None:
-        title = escape(item.title)
+        title = escape(short_title(item.title))
         if item.type is ItemType.MEETING and item.has_time:
             minutes = max(0, round((occurrence - self._clock()).total_seconds() / 60))
             soon = f"через {minutes} мин" if minutes else "сейчас"
@@ -48,7 +48,8 @@ class TelegramNotifier:
 
     async def _send(self, chat_id: int, text: str, keyboard: InlineKeyboardMarkup | None = None) -> None:
         try:
-            await self._bot.send_message(chat_id, text, reply_markup=keyboard)
+            # fit обрезает длинное сообщение: сводка на много дел иначе не влезла бы в лимит Telegram и не ушла
+            await self._bot.send_message(chat_id, fit(text), reply_markup=keyboard)
         except TelegramForbiddenError:
             # пользователь заблокировал бота, повторять отправку нет смысла
             log.info("Chat %s is not reachable, skipping", chat_id)

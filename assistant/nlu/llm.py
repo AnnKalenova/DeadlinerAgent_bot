@@ -76,6 +76,9 @@ def to_command(result: ChatResult, user_text: str, ctx: ParseContext) -> Command
         raise ParserError("empty model response")
 
     args = result.arguments
+    if not isinstance(args, dict):
+        # модель прислала аргументы списком или строкой. такое не разобрать, поэтому разбирают правила
+        raise ParserError(f"tool arguments are not an object: {type(args).__name__}")
     if result.tool == "create_item":
         return Command(
             Intent.CREATE,
@@ -125,4 +128,10 @@ class LLMParser:
             result = await self._model.chat(messages, TOOLS)
         except Exception as exc:
             raise ParserError(f"model call failed: {exc}") from exc
-        return to_command(result, text, ctx)
+        try:
+            return to_command(result, text, ctx)
+        except ParserError:
+            raise
+        except Exception as exc:
+            # любой неожиданный ответ модели - повод перейти на правила, чтобы пользователь не получил ошибку
+            raise ParserError(f"bad model response: {exc}") from exc

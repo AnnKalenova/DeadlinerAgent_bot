@@ -64,8 +64,11 @@ def reminder_time(item: Item, now: datetime, meeting_lead: int) -> datetime | No
     if item.repeat is not None:
         occurrence = item.start
         for n in range(1, _MAX_OCCURRENCES):
-            if _alert_for(item, occurrence, meeting_lead) > now:
-                return _alert_for(item, occurrence, meeting_lead)
+            alert = _alert_for(item, occurrence, meeting_lead)
+            if alert > now:
+                return alert
+            if item.has_time and occurrence > now:
+                return now  # ближайший повтор начнется меньше чем через 15 минут: напоминаем сразу, а не завтра
             occurrence = shift(item.start, item.repeat, n)
         return None
     alert = _alert_for(item, item.start, meeting_lead)
