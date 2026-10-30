@@ -1,5 +1,5 @@
-# бот Дедлайнер. это шаблон: install.sh подставляет пути и кладет его в /etc/systemd/system.
-# там руками не править, при следующей установке перезапишется
+# бот Дедлайнер. это шаблон: install.sh подставляет пути и копирует его в /etc/systemd/system.
+# вручную там не править: при следующей установке файл перезапишется
 [Unit]
 Description=Deadliner Telegram bot (tg_assistant)
 Wants=network-online.target

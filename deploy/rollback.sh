@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# откат бота на прошлую версию. install.sh сам кладет этот скрипт в /opt/tg_assistant/rollback.sh
+# откат бота на прошлую версию. install.sh сам копирует этот скрипт в /opt/tg_assistant/rollback.sh
 #
 #   sudo /opt/tg_assistant/rollback.sh --check   показать, что будет сделано, ничего не менять
 #   sudo /opt/tg_assistant/rollback.sh           вернуть прошлую версию кода, база остаётся текущей
@@ -31,7 +31,7 @@ STOPPED=0
 ok() { printf '  [ok] %s\n' "$*"; }
 warn() { printf '  [!]  %s\n' "$*"; }
 die() { printf '\nОшибка: %s\n' "$*" >&2; exit 1; }
-# если что-то упало между остановкой и запуском, бот не должен так и остаться выключенным
+# если ошибка случилась между остановкой и запуском, бот не должен остаться выключенным
 trap 'if ((STOPPED)); then systemctl start "$APP" || true; fi' EXIT
 
 db_copy() {

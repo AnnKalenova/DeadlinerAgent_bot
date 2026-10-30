@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# установка и обновление бота на linux сервере (systemd + venv). один и тот же скрипт для первого раза и для обновлений
+# установка и обновление бота на Linux-сервере (systemd + venv). один скрипт и для первой установки, и для обновлений
 # справка: deploy/install.sh --help
 set -Eeuo pipefail
 
@@ -12,7 +12,7 @@ usage() {
 
   --env FILE  .env с токеном и ключами. Нужен при первой установке. При обновлении
               без --env остаётся серверный .env, с --env он заменяется (старый — в бэкап).
-  --db FILE   перенести базу assistant.db с компа (assistant.db-wal, если есть, — рядом).
+  --db FILE   перенести базу assistant.db с другой машины (assistant.db-wal, если есть, — рядом).
   --check     только проверить и показать план.
 
 Новая версия собирается рядом с работающей и включается, только если прошла проверка (deploy/check.py).
@@ -57,7 +57,7 @@ fail() { printf '  [x]  %s\n' "$*"; ERRORS=$((ERRORS + 1)); }
 step() { printf '\n== %s\n' "$*"; }
 die() { printf '\nОшибка: %s\n' "$*" >&2; exit 1; }
 
-# если что-то упало до переключения: недособранную версию удаляем, а старую, если успели остановить, запускаем обратно
+# если ошибка случилась до переключения: недособранную версию удаляем, а старую, если успели остановить, запускаем обратно
 cleanup() {
     local rc=$?
     rm -rf "$TMP"
@@ -74,7 +74,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# достает значение KEY из .env: последняя строка KEY=..., без кавычек, \r, комментария и пробелов по краям
+# возвращает значение KEY из .env: последняя строка KEY=..., без кавычек, \r, комментария и пробелов по краям
 env_get() {
     local value
     value=$(grep -E "^[[:space:]]*(export[[:space:]]+)?$2[[:space:]]*=" "$1" | tail -n 1 | cut -d= -f2- | tr -d '\r' || true)
@@ -97,7 +97,7 @@ src.close()
 EOF
 }
 
-# ждет в логе строку "Bot @... is running" (значит телега ответила), потом еще 15 сек смотрит, нет ли конфликта
+# ждет в логе строку "Bot @... is running" (значит, Telegram ответил), потом еще 15 секунд проверяет, нет ли конфликта
 wait_started() {
     local offset=$1 size text
     for _ in $(seq 1 45); do
@@ -220,7 +220,7 @@ if command -v curl >/dev/null; then
     if [[ -n $TOKEN ]]; then
         args=(-sS -m 15 -o "$TMP/getme" -w '%{http_code}')
         if [[ -n $PROXY ]]; then args+=(--proxy "$PROXY"); fi
-        # токен отдаем curl через stdin (-K -), чтобы он не светился в списке процессов
+        # токен передается curl через stdin (-K -), чтобы он не был виден в списке процессов
         code=$(printf 'url = "https://api.telegram.org/bot%s/getMe"\n' "$TOKEN" | curl "${args[@]}" -K - 2>"$TMP/err") || code=000
         case $code in
             200) ok "api.telegram.org доступен${PROXY:+ через прокси}, бот @$(grep -o '"username":"[^"]*"' "$TMP/getme" | cut -d'"' -f4)" ;;

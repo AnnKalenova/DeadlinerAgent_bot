@@ -1,5 +1,5 @@
-"""команда /demo: грузит csv из задания (id, date, time, text) в записи пользователя.
-нужно чтобы было на чем проверить поиск по старым записям"""
+"""команда /demo: загружает csv из задания (id, date, time, text) в записи пользователя.
+нужно, чтобы было на чем проверить поиск по старым записям"""
 from __future__ import annotations
 
 import csv
@@ -16,7 +16,7 @@ _REMINDER = re.compile(r"^напомнить\b", re.IGNORECASE)
 
 
 def guess_type(text: str) -> ItemType:
-    """в файле нет типа записи, поэтому угадываем по началу фразы"""
+    """в файле нет типа записи, поэтому определяем его по началу фразы"""
     normalized = text.replace("ё", "е")
     if _MEETING.search(normalized):
         return ItemType.MEETING
@@ -38,7 +38,7 @@ def read_csv(path: Path, user_id: int, now: datetime) -> list[Item]:
                 title=title,
                 start=start,
                 has_time=True,
-                # прошедшие задачи считаем выполненными. по демо-записям напоминания не шлем (notified=True)
+                # прошедшие задачи считаем выполненными. по демо-записям напоминания не отправляем (notified=True)
                 status=Status.DONE if start < now and item_type is not ItemType.MEETING else Status.OPEN,
                 notified=True,
                 origin=ORIGIN,
@@ -48,7 +48,7 @@ def read_csv(path: Path, user_id: int, now: datetime) -> list[Item]:
 
 
 def import_demo(storage: Storage, user_id: int, path: Path, now: datetime) -> list[Item]:
-    """старые демо-записи пользователя удаляем и грузим заново. его собственные записи не трогаем"""
+    """старые демо-записи пользователя удаляем и загружаем заново. его собственные записи не трогаем"""
     items = read_csv(path, user_id, now)
     storage.delete_user_items(user_id, origin=ORIGIN)
     storage.add_items(items)

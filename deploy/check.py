@@ -1,8 +1,8 @@
-"""быстрая проверка новой версии перед тем как ее включить. запускает deploy/install.sh
+"""быстрая проверка новой версии перед тем, как ее включить. запускает deploy/install.sh
 
-это не тесты, а просто защита от того, чтобы выкатить сломанное:
-- все модули импортируются (значит зависимости встали и в коде нет синтаксических ошибок)
-- .env читается и значения в нем нормальные (числа, время, часовой пояс)
+это не тесты, а защита от выкладки неработающей версии:
+- все модули импортируются (значит, зависимости установлены и в коде нет синтаксических ошибок)
+- .env читается и значения в нем корректные (числа, время, часовой пояс)
 - бот на правилах понимает одну фразу и сохраняет запись (база в памяти, сеть не нужна)
 
     .venv/bin/python deploy/check.py путь/к/.env
@@ -20,20 +20,20 @@ from dotenv import load_dotenv  # noqa: E402
 
 def main() -> None:
     if len(sys.argv) > 1:
-        # .env, с которым бот будет работать на сервере. load_settings ниже эти значения уже не перебьет
+        # .env, с которым бот будет работать на сервере. load_settings ниже эти значения уже не перезапишет
         load_dotenv(sys.argv[1])
 
-    import main as entry  # noqa: F401  тянет за собой все модули бота
+    import main as entry  # noqa: F401  импортирует все модули бота
     from assistant.config import load_settings
     from assistant.nlu import RuleParser
     from assistant.search import Searcher
     from assistant.service import Assistant
     from assistant.storage import Storage
 
-    settings = load_settings()  # упадет, если в .env кривые числа или время
+    settings = load_settings()  # ошибка, если в .env неверные числа или время
     if not settings.telegram_token:
         sys.exit("в .env нет TELEGRAM_BOT_TOKEN")
-    settings.clock()()  # упадет, если кривой TIMEZONE
+    settings.clock()()  # ошибка, если неверный TIMEZONE
 
     now = datetime(2026, 10, 26, 10, 0)  # понедельник, чтобы "завтра" всегда было одним и тем же днем
     db = Storage(":memory:")

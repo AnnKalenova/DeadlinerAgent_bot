@@ -1,6 +1,6 @@
-"""тут собираем все части вместе и запускаем бота
+"""сборка всех частей и запуск бота
 
-бот сам опрашивает телегу (long polling), поэтому белый ip, домен и https не нужны
+бот сам опрашивает Telegram (long polling), поэтому публичный IP, домен и https не нужны
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from .notifier import TelegramNotifier
 
 log = logging.getLogger(__name__)
 
-# меню команд, которое видно в телеге по кнопке "/"
+# меню команд, которое видно в Telegram по кнопке "/"
 COMMANDS = [
     BotCommand(command="today", description="План на сегодня"),
     BotCommand(command="tomorrow", description="План на завтра"),
@@ -42,7 +42,7 @@ COMMANDS = [
 
 
 def setup_logging(settings: Settings) -> None:
-    """лог пишем и в консоль, и в logs/bot.log. файл режется по 2 МБ, хранятся 3 старых куска"""
+    """лог пишется в консоль и в logs/bot.log. файл ротируется по 2 МБ, хранятся 3 старых файла"""
     settings.log_path.parent.mkdir(parents=True, exist_ok=True)
     file_handler = RotatingFileHandler(settings.log_path, maxBytes=2_000_000, backupCount=3, encoding="utf-8")
     logging.basicConfig(
@@ -50,7 +50,7 @@ def setup_logging(settings: Settings) -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         handlers=[logging.StreamHandler(), file_handler],
     )
-    # сетевые библиотеки пишут строку на каждый http запрос, в логе от этого только мусор
+    # сетевые библиотеки пишут строку на каждый http-запрос, в логе это только мешает
     for noisy in ("httpx", "httpx2", "openai"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     logging.getLogger("aiogram.event").setLevel(logging.WARNING)
@@ -63,10 +63,10 @@ async def run(settings: Settings) -> None:
 
     speech = None
     embedder = None
-    # без ключей яндекса бот тоже работает: на правилах, без голоса и без поиска по смыслу
+    # без ключей Yandex бот тоже работает: на правилах, без голоса и без поиска по смыслу
     if settings.yandex_enabled:
         llm = YandexGPT(settings.yandex_api_key, settings.yandex_folder_id, settings.llm_model)
-        parser = FallbackParser(LLMParser(llm), RuleParser())  # модель, а если упала - правила
+        parser = FallbackParser(LLMParser(llm), RuleParser())  # модель, а при ее ошибке - правила
         embedder = YandexEmbedder(settings.yandex_api_key, settings.yandex_folder_id)
         speech = SpeechKit(settings.yandex_api_key, settings.tts_voice)
         log.info("LLM %s, embeddings and SpeechKit enabled", settings.llm_model)
@@ -81,13 +81,13 @@ async def run(settings: Settings) -> None:
         reminder_lead_minutes=settings.meeting_reminder_minutes,
     )
 
-    # прокси нужен, только если с сервера нет прямого доступа к api.telegram.org (например сервер в рф)
+    # прокси нужен, только если с сервера нет прямого доступа к api.telegram.org (например, если сервер в России)
     session = None
     if settings.telegram_proxy:
         session = AiohttpSession(proxy=settings.telegram_proxy)
         log.info("Telegram API via proxy")
     bot = Bot(settings.telegram_token, session=session, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    # все что передали в Dispatcher, aiogram сам подставит в обработчики по имени параметра
+    # все, что передано в Dispatcher, aiogram подставит в обработчики по имени параметра
     dispatcher = Dispatcher(
         assistant=assistant, db=db, searcher=searcher, speech=speech, settings=settings, clock=clock,
     )
@@ -100,11 +100,11 @@ async def run(settings: Settings) -> None:
         db, assistant, TelegramNotifier(bot, clock), clock,
         meeting_lead=settings.meeting_reminder_minutes, digest_time=settings.digest_time,
     )
-    reminder_task = asyncio.create_task(reminders.run())  # напоминания крутятся в фоне рядом с ботом
+    reminder_task = asyncio.create_task(reminders.run())  # напоминания работают в фоне параллельно с ботом
     try:
         await bot.set_my_commands(COMMANDS)
         me = await bot.get_me()
-        # по этой строке deploy/install.sh понимает что бот запустился, ее не менять
+        # по этой строке deploy/install.sh понимает, что бот запустился, - ее не менять
         log.info("Bot @%s is running", me.username)
         await dispatcher.start_polling(bot)
     finally:

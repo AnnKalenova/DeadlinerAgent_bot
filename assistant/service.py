@@ -1,7 +1,7 @@
 """главная логика: что делать с сообщением, уточняющие вопросы, проверки
 
-разборщик (модель или правила) только говорит что хочет пользователь.
-а все проверки и запись в базу делаются тут. про телегу этот модуль ничего не знает:
+разборщик (модель или правила) только определяет, что хочет пользователь.
+а все проверки и запись в базу делаются тут. про Telegram этот модуль ничего не знает:
 на вход текст, на выход Reply
 """
 from __future__ import annotations
@@ -22,12 +22,12 @@ from .texts import HELP, TYPE_ACCUSATIVE, TYPE_GENITIVE_PLURAL, TYPE_PLURAL, plu
 
 log = logging.getLogger(__name__)
 
-HISTORY_SIZE = 6  # сколько последних реплик отдаем модели как контекст
+HISTORY_SIZE = 6  # сколько последних реплик передаем модели как контекст
 RECENT_LIMIT = 20  # сколько последних показанных записей помним для "удали вторую"
 MAX_PERIOD_DAYS = 92  # список больше чем на 3 месяца не строим
-TIME_OPTIONS = (time(9), time(10), time(12), time(15), time(18))  # кнопки, когда спрашиваем время встречи
+TIME_OPTIONS = (time(9), time(10), time(12), time(15), time(18))  # варианты времени на кнопках, когда спрашиваем время встречи
 
-# какой уточняющий вопрос бот задал и ждет ответа. лежит в базе (dialog_state), поэтому переживает перезапуск
+# какой уточняющий вопрос бот задал и ждет ответа. хранится в базе (dialog_state), поэтому переживает перезапуск
 ASK_TIME = "time"  # у встречи нет времени: "на какое время поставить?"
 ASK_WHEN = "when"  # у напоминания нет даты или время уже прошло: "когда напомнить?"
 ASK_RESCHEDULE = "reschedule"  # "на когда перенести?"
@@ -48,7 +48,7 @@ _ORDINALS = {"перв": 1, "втор": 2, "трет": 3, "четверт": 4, "
 
 @dataclass
 class DialogState:
-    """что бот помнит про разговор с конкретным человеком"""
+    """что бот помнит о диалоге с конкретным пользователем"""
     recent: list[int] = field(default_factory=list)  # id записей, на которые можно сослаться номером
     pending: dict | None = None  # заданный уточняющий вопрос, на который еще не ответили
 
@@ -69,17 +69,17 @@ class Assistant:
         self._parser = parser
         self._searcher = searcher
         self._clock = clock
-        self._meeting = timedelta(minutes=meeting_minutes)  # длина встречи, если конец не сказали
+        self._meeting = timedelta(minutes=meeting_minutes)  # длина встречи, если конец не указан
         self._lead = reminder_lead_minutes  # за сколько минут напоминать о встрече
 
-    # --- сюда приходит бот ---
+    # --- методы, которые вызывает бот ---
 
     async def handle(self, user_id: int, text: str) -> Reply:
-        """любое сообщение текстом (голосовое сюда приходит уже текстом)"""
+        """обработка сообщения (голосовое сюда приходит уже распознанным текстом)"""
         now = self._clock()
         with self._session(user_id) as state:
             reply = None
-            # 1. может это ответ на наш уточняющий вопрос
+            # 1. возможно, это ответ на уточняющий вопрос
             if state.pending:
                 reply = await self._answer_pending(user_id, text, state, now)
             # 2. "2" или "вторую" сразу после списка - просто открываем запись, модель не нужна
@@ -198,7 +198,7 @@ class Assistant:
 
     @contextmanager
     def _session(self, user_id: int):
-        """достает состояние диалога из базы, а после обработки сохраняет обратно"""
+        """загружает состояние диалога из базы, а после обработки сохраняет обратно"""
         state = DialogState.from_dict(self._storage.load_state(user_id))
         yield state
         self._storage.save_state(user_id, state.to_dict())
@@ -208,11 +208,11 @@ class Assistant:
         return [item for item in items if item is not None]
 
     async def _answer_pending(self, user_id: int, text: str, state: DialogState, now: datetime) -> Reply | None:
-        """пробуем понять ответ на уточняющий вопрос. None - это не ответ, дальше разбираем как обычный запрос"""
+        """разбирает ответ на уточняющий вопрос. None - это не ответ, дальше сообщение разбирается как обычный запрос"""
         pending, state.pending = state.pending, None
         low = dates.normalize(text.strip())
-        # короткую непонятную фразу считаем кривым ответом и переспрашиваем,
-        # а длинную - новым запросом (человек передумал и спросил другое)
+        # короткую непонятную фразу считаем неудачным ответом и переспрашиваем,
+        # а длинную - новым запросом (пользователь передумал и спросил о другом)
         short = len(low.split()) <= 4
         kind = pending["kind"]
 
@@ -278,7 +278,7 @@ class Assistant:
         if cmd.intent is Intent.SEARCH:
             return await self._search(user_id, cmd, state, now)
         if cmd.intent in (Intent.UPDATE, Intent.DELETE, Intent.COMPLETE):
-            # сначала понять о какой записи речь, а потом уже делать
+            # сначала находим, о какой записи речь, потом выполняем действие
             item, problem = await self._target(user_id, cmd, state, now)
             if problem:
                 return problem
@@ -296,7 +296,7 @@ class Assistant:
             "или «что у меня на этой неделе?»."
         )
 
-    # --- сами команды ---
+    # --- команды ---
 
     def _create(self, user_id: int, cmd: Command, state: DialogState, now: datetime) -> Reply:
         title = (cmd.title or "").strip()
@@ -322,7 +322,7 @@ class Assistant:
 
         end = None
         if item_type is ItemType.MEETING and start:
-            # конец встречи: если сказали "с 15 до 16:30" берем его, иначе начало + час (MEETING_MINUTES)
+            # конец встречи: если указано "с 15 до 16:30", берем его, иначе начало + MEETING_MINUTES (по умолчанию час)
             end = datetime.combine(start.date(), cmd.end_at) if cmd.end_at and cmd.end_at > start.time() \
                 else start + self._meeting
         item = Item(
@@ -357,7 +357,7 @@ class Assistant:
         if not query:
             return Reply("Что найти? Например: «найди задачу про договор».")
         hits = await self._searcher.search(user_id, query, now, item_type=cmd.item_type, scope=cmd.scope)
-        # с фильтрами ничего не нашли - пробуем еще раз без них, вдруг тип или время угадали неправильно
+        # с фильтрами ничего не нашлось - ищем еще раз без них, на случай если тип или время определены неверно
         if not hits and (cmd.item_type or cmd.scope):
             hits = await self._searcher.search(user_id, query, now)
         if not hits:
@@ -370,7 +370,7 @@ class Assistant:
 
     async def _target(self, user_id: int, cmd: Command, state: DialogState,
                       now: datetime) -> tuple[Item | None, Reply | None]:
-        """ищет запись, про которую команда. если не вышло - возвращает ответ с объяснением почему"""
+        """находит запись, к которой относится команда. если не получилось, возвращает ответ с объяснением"""
         # по номеру из последнего списка: "удали вторую"
         if cmd.ref is not None:
             if 1 <= cmd.ref <= len(state.recent):
@@ -384,7 +384,7 @@ class Assistant:
             hits = await self._searcher.search(user_id, cmd.query, now, item_type=cmd.item_type)
             if not hits:
                 return None, Reply(f"Не нашёл запись «{cmd.query}».")
-            # берем лучшее совпадение, только если оно заметно лучше второго. иначе пусть человек выберет сам
+            # берем лучшее совпадение, только если оно заметно лучше второго. иначе пользователь выбирает сам
             if len(hits) == 1 or hits[0].score - hits[1].score >= 0.2:
                 return hits[0].item, None
             state.recent = [hit.item.id for hit in hits]
@@ -392,7 +392,7 @@ class Assistant:
             return None, Reply("Нашёл несколько подходящих записей. Какую из них?",
                                candidates=[hit.item for hit in hits])
 
-        # "перенеси ее" - если на экране одна запись, то понятно какая
+        # "перенеси ее": если последней показана одна запись, речь о ней
         if len(state.recent) == 1 and (item := self._storage.get_item(user_id, state.recent[0])):
             return item, None
         if state.recent:
@@ -411,7 +411,7 @@ class Assistant:
         return self._reschedule(item, cmd.day, cmd.at, state, now)
 
     def _reschedule(self, item: Item, day: date | None, at: time | None, state: DialogState, now: datetime) -> Reply:
-        # меняем только то что назвали: "на пятницу" оставляет время, "на 15:00" оставляет день
+        # меняем только то, что названо: "на пятницу" оставляет время, "на 15:00" оставляет день
         duration = self._duration(item) if item.end else None
         if day is None and at is not None and item.start:
             day = item.start.date()
@@ -435,7 +435,7 @@ class Assistant:
         return Reply(f"Перенёс на {human_datetime(start, has_time, now.date())}.", card=item, warning=conflict)
 
     def _confirm_delete(self, item: Item, state: DialogState) -> Reply:
-        # сразу не удаляем никогда, сначала спрашиваем
+        # без подтверждения не удаляем
         state.recent = [item.id]
         state.pending = {"kind": ASK_DELETE, "item_id": item.id}
         series = " (все повторы)" if item.repeat else ""
@@ -488,7 +488,7 @@ class Assistant:
         return self._meeting
 
     def _conflict(self, item: Item) -> str | None:
-        """текст предупреждения, если встречи пересекаются. сохраняем все равно, решает человек"""
+        """текст предупреждения, если встречи пересекаются. запись все равно сохраняется, решает пользователь"""
         if item.type is not ItemType.MEETING or not item.start or not item.has_time:
             return None
         end = item.start + self._duration(item)
@@ -511,7 +511,7 @@ class Assistant:
 
 
 def _choice(text: str) -> int | None:
-    """номер в списке, если сообщение только из него и состоит: "2", "вторую", "номер 3" """
+    """номер в списке, если сообщение состоит только из него: "2", "вторую", "номер 3" """
     low = dates.normalize(text.strip()).strip(" .!?")
     m = _CHOICE_ONLY.match(low)
     if not m:
@@ -529,7 +529,7 @@ def _ids(entries: list[Entry]) -> list[int]:
 
 
 def _summary(reply: Reply) -> str:
-    """коротко что ответил бот, текстом. это уходит в историю, которую видит модель"""
+    """краткий текст ответа бота для истории диалога, которую видит модель"""
     lines = [reply.text]
     if reply.card:
         when = reply.card.start.isoformat(sep=" ", timespec="minutes") if reply.card.start else "без срока"

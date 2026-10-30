@@ -1,6 +1,6 @@
 """настройки бота из .env
 
-если переменная уже есть в окружении, она главнее чем .env
+если переменная уже задана в окружении, она важнее значения из .env
 (на сервере так задаются DB_PATH и LOG_PATH, см. deploy/tg-assistant.service)
 """
 from __future__ import annotations
@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
-ROOT = Path(__file__).resolve().parent.parent  # корень проекта, тут лежат .env, data и logs
+ROOT = Path(__file__).resolve().parent.parent  # корень проекта, здесь лежат .env, data и logs
 
 
 @dataclass(frozen=True)
@@ -41,14 +41,14 @@ class Settings:
         return bool(self.yandex_api_key and self.yandex_folder_id)
 
     def clock(self):
-        """отдает функцию "сколько сейчас времени" в нашем часовом поясе.
+        """возвращает функцию текущего времени в часовом поясе из настроек.
         без tzinfo и секунд, чтобы везде сравнивались одинаковые даты"""
         zone = ZoneInfo(self.timezone)
         return lambda: datetime.now(zone).replace(tzinfo=None, second=0, microsecond=0)
 
 
 def _path(name: str, default: str) -> Path:
-    # относительный путь считаем от корня проекта, а не от папки откуда запустили
+    # относительный путь считается от корня проекта, а не от папки, из которой запустили
     value = Path(os.getenv(name, default))
     return value if value.is_absolute() else ROOT / value
 

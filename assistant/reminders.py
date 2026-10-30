@@ -1,7 +1,7 @@
 """фоновый цикл: отправляет напоминания, когда подошло время, и утреннюю сводку
 
 все хранится в базе (remind_at, notified), поэтому после перезапуска ничего не теряется:
-то, что пропустили пока бот лежал, уйдет на первом же проходе
+напоминания, пропущенные пока бот был выключен, уйдут на первом же проходе
 """
 from __future__ import annotations
 
@@ -18,11 +18,11 @@ from .storage import Storage
 log = logging.getLogger(__name__)
 
 LATE_AFTER = timedelta(minutes=10)  # если опоздали больше чем на 10 мин, пишем "пропущенное напоминание"
-DIGEST_WINDOW = timedelta(hours=3)  # сводка уходит с DIGEST_TIME и еще 3 часа, если бот был выключен
+DIGEST_WINDOW = timedelta(hours=3)  # сводка отправляется с DIGEST_TIME в течение 3 часов (на случай, если бот был выключен)
 
 
 class Notifier(Protocol):
-    """куда отправлять. в боте это телега (bot/notifier.py)"""
+    """куда отправлять. в боте это Telegram (bot/notifier.py)"""
 
     async def send_reminder(self, item: Item, occurrence: datetime, late: bool) -> None: ...
 
@@ -30,7 +30,7 @@ class Notifier(Protocol):
 
 
 class ReminderService:
-    """раз в interval секунд смотрит в базу и отправляет то, что пора"""
+    """раз в interval секунд проверяет базу и отправляет то, что пора отправить"""
 
     def __init__(self, storage: Storage, assistant: Assistant, notifier: Notifier, clock, *,
                  meeting_lead: int, digest_time: time, interval: float = 30):
@@ -47,7 +47,7 @@ class ReminderService:
             try:
                 await self.tick()
             except Exception:
-                # что бы ни сломалось, цикл не падает, просто пишем в лог и идем на следующий круг
+                # при любой ошибке цикл не останавливается: пишем ее в лог и идем на следующий проход
                 log.exception("Reminder tick failed")
             await asyncio.sleep(self._interval)
 
@@ -60,7 +60,7 @@ class ReminderService:
                 await self._notifier.send_reminder(item, occurrence, late=now - item.remind_at > LATE_AFTER)
             except Exception:
                 log.exception("Could not send reminder for item %s, will retry", item.id)
-                continue  # notified не ставим, попробуем на следующем круге
+                continue  # notified не ставим, попробуем на следующем проходе
             # у повторяющейся записи сразу ставим следующее напоминание
             if item.repeat:
                 item.remind_at = schedule.reminder_time(item, now, self._lead)
@@ -80,7 +80,7 @@ class ReminderService:
                 continue  # сегодня уже отправляли
             entries = self._assistant.day_entries(user.user_id, today)
             try:
-                if entries:  # если на сегодня пусто, ничего не шлем
+                if entries:  # если на сегодня ничего нет, сводку не отправляем
                     await self._notifier.send_digest(user.user_id, entries, today)
             except Exception:
                 log.exception("Could not send digest to %s", user.user_id)

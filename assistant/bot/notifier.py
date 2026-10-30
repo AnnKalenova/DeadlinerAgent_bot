@@ -1,4 +1,4 @@
-"""отправка в телегу того, что готовит фоновый цикл: напоминания и утренняя сводка"""
+"""отправка в Telegram того, что готовит фоновый цикл: напоминания и утренняя сводка"""
 from __future__ import annotations
 
 import logging
@@ -50,5 +50,5 @@ class TelegramNotifier:
         try:
             await self._bot.send_message(chat_id, text, reply_markup=keyboard)
         except TelegramForbiddenError:
-            # человек заблокировал бота, повторять смысла нет
+            # пользователь заблокировал бота, повторять отправку нет смысла
             log.info("Chat %s is not reachable, skipping", chat_id)

@@ -1,7 +1,7 @@
 """поиск записей: по словам и по смыслу
 
 по словам ищем через основы, так находятся разные формы ("договору" -> "договор").
-по смыслу через эмбеддинги яндекса, так находятся фразы вообще без общих слов
+по смыслу - через эмбеддинги Yandex, так находятся фразы даже без общих слов
 ("созвон" -> "встреча"). если эмбеддинги недоступны, ищем только по словам
 """
 from __future__ import annotations
@@ -51,7 +51,7 @@ class Hit:
 
 
 def stem(word: str) -> str:
-    """очень грубая основа слова: срезаем окончание, но оставляем минимум 4 буквы"""
+    """упрощенная основа слова: срезаем окончание, но оставляем минимум 4 буквы"""
     return word if len(word) <= 4 else word[:max(4, len(word) - 2)]
 
 
@@ -72,7 +72,7 @@ def _matches(query_stem: str, title: list[str]) -> bool:
 
 def word_weights(query: list[str], titles: list[list[str]]) -> dict[str, float]:
     """веса слов как в IDF: чем реже слово встречается в записях, тем оно важнее.
-    слова, которых нет ни в одном названии, выкидываем"""
+    слова, которых нет ни в одном названии, отбрасываем"""
     weights = {}
     for q in query:
         frequency = sum(1 for title in titles if _matches(q, title))
@@ -123,7 +123,7 @@ class Searcher:
             if similarity is None:
                 score, relevant = keyword, keyword >= _MIN_KEYWORD_SCORE
             else:
-                # итоговая оценка - смесь слов и смысла. подходит, если хорошо совпало хоть что-то одно
+                # итоговая оценка - взвешенная сумма оценок по словам и по смыслу. запись подходит, если хорошо совпало хотя бы одно
                 score = self._keyword_weight * keyword + (1 - self._keyword_weight) * similarity
                 relevant = keyword >= _MIN_KEYWORD_SCORE or similarity >= self._threshold
             if relevant:
@@ -139,7 +139,7 @@ class Searcher:
         try:
             await self._embeddings(list(dict.fromkeys(titles)), limit=None)
         except Exception as exc:
-            # не страшно, недостающее досчитается во время поиска
+            # не критично: недостающие эмбеддинги посчитаются во время поиска
             log.warning("Embeddings warm-up stopped: %s", exc)
 
     async def _semantic_scores(self, query: str, items: list[Item]) -> dict[str, float]:

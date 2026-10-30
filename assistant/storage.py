@@ -1,6 +1,6 @@
 """база sqlite: записи, пользователи, состояние диалога и кеш эмбеддингов
 
-весь sql тут. остальной код работает с Item и User и про таблицы не знает
+весь sql здесь. остальной код работает с Item и User и о таблицах не знает
 """
 from __future__ import annotations
 
@@ -63,9 +63,9 @@ CREATE TABLE IF NOT EXISTS embeddings (
 );
 """
 
-_HISTORY_KEEP = 40  # сколько последних реплик диалога держим на пользователя, старое удаляем
+_HISTORY_KEEP = 40  # сколько последних реплик диалога храним на пользователя, старые удаляются
 
-# один INSERT на всех: и для одной записи, и для пачки из /demo
+# общий INSERT: и для одной записи, и для загрузки из /demo
 _ITEM_COLUMNS = ("user_id", "type", "title", "start_at", "end_at", "has_time", "status", "repeat",
                  "remind_at", "notified", "origin", "source_text", "created_at", "updated_at")
 _INSERT_ITEM = f"INSERT INTO items ({', '.join(_ITEM_COLUMNS)}) VALUES ({', '.join('?' * len(_ITEM_COLUMNS))})"
@@ -73,7 +73,7 @@ _INSERT_ITEM = f"INSERT INTO items ({', '.join(_ITEM_COLUMNS)}) VALUES ({', '.jo
 
 @dataclass
 class User:
-    """пользователь телеги и его настройки"""
+    """пользователь Telegram и его настройки"""
 
     user_id: int
     name: str | None
@@ -140,7 +140,7 @@ class Storage:
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")  # режим WAL: чтение и запись меньше мешают друг другу
-        self._conn.executescript(SCHEMA)  # таблицы создаются сами при первом запуске
+        self._conn.executescript(SCHEMA)  # таблицы создаются автоматически при первом запуске
 
     def close(self) -> None:
         self._conn.close()
@@ -149,7 +149,7 @@ class Storage:
         return self._conn.execute(sql, args).fetchall()
 
     def _write(self, sql: str, args=()) -> sqlite3.Cursor:
-        with self._conn:  # with = коммит, а если ошибка то откат
+        with self._conn:  # with: при успехе коммит, при ошибке откат
             return self._conn.execute(sql, args)
 
     # --- записи ---
@@ -174,7 +174,7 @@ class Storage:
         )
         return self.get_item(item.user_id, item.id)
 
-    # везде проверяем и user_id тоже, чтобы никто не мог открыть чужую запись по номеру
+    # везде проверяется и user_id, чтобы нельзя было открыть чужую запись по номеру
     def get_item(self, user_id: int, item_id: int) -> Item | None:
         rows = self._query("SELECT * FROM items WHERE id = ? AND user_id = ?", (item_id, user_id))
         return _item(rows[0]) if rows else None
@@ -247,7 +247,7 @@ class Storage:
         return _user(rows[0]) if rows else None
 
     def update_user(self, user_id: int, **fields) -> None:
-        # имена колонок подставляются в sql, поэтому пускаем только известные
+        # имена колонок подставляются в sql, поэтому разрешены только известные
         allowed = {"voice_replies", "digest", "last_digest"}
         values = {k: (v.isoformat() if isinstance(v, date) else v) for k, v in fields.items() if k in allowed}
         if values:
@@ -293,11 +293,11 @@ class Storage:
             self._conn.execute("DELETE FROM messages WHERE user_id = ?", (user_id,))
             self._conn.execute("DELETE FROM dialog_state WHERE user_id = ?", (user_id,))
 
-    # --- кеш эмбеддингов, чтобы не платить яндексу за одно и то же ---
+    # --- кеш эмбеддингов, чтобы не запрашивать одно и то же у Yandex повторно ---
 
     def get_embeddings(self, keys: list[str]) -> dict[str, list[float]]:
         found = {}
-        # в sqlite есть лимит на число параметров в запросе, поэтому читаем кусками по 500
+        # в sqlite есть лимит на число параметров в запросе, поэтому читаем частями по 500
         for chunk_start in range(0, len(keys), 500):
             chunk = keys[chunk_start:chunk_start + 500]
             marks = ",".join("?" * len(chunk))

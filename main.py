@@ -6,14 +6,14 @@ from assistant.config import load_settings
 
 
 def main() -> None:
-    """читаем .env и запускаем бота. без токена телеги запускать нечего"""
+    """читаем .env и запускаем бота. без токена Telegram запускать нечего"""
     settings = load_settings()
     if not settings.telegram_token:
         sys.exit("TELEGRAM_BOT_TOKEN не задан. Скопируйте .env.example в .env и заполните его.")
     try:
         asyncio.run(run(settings))
     except KeyboardInterrupt:
-        pass  # ctrl+c в консоли, просто выходим без простыни ошибок
+        pass  # остановка через Ctrl+C: выходим без длинного текста ошибки
 
 
 if __name__ == "__main__":

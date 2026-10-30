@@ -1,6 +1,6 @@
-"""разбор через языковую модель: она выбирает инструмент и заполняет аргументы, а мы делаем из этого Command
+"""разбор через языковую модель: она выбирает инструмент и заполняет аргументы, а код превращает это в Command
 
-модели не доверяем: каждый аргумент проверяется, кривая дата или неизвестный тип просто выкидываются
+ответ модели не принимается на веру: каждый аргумент проверяется, неверная дата или неизвестный тип отбрасываются
 """
 from __future__ import annotations
 
@@ -23,12 +23,12 @@ class ChatResult:
 
 
 class ChatModel(Protocol):
-    """модель с вызовом инструментов. сейчас это YandexGPT из yandex.py, но можно подсунуть любую с методом chat"""
+    """модель с вызовом инструментов. сейчас это YandexGPT из yandex.py, но подойдет любая реализация с методом chat"""
 
     async def chat(self, messages: list[dict], tools: list[dict]) -> ChatResult: ...
 
 
-# дальше маленькие проверялки аргументов: если значение кривое, возвращают None
+# дальше функции проверки аргументов: если значение некорректное, возвращают None
 
 
 def _date(value) -> date | None:
@@ -90,7 +90,7 @@ def to_command(result: ChatResult, user_text: str, ctx: ParseContext) -> Command
         start = _date(args.get("date_from")) or ctx.now.date()
         end = _date(args.get("date_to")) or start
         if end < start:
-            start, end = end, start  # модель иногда путает местами
+            start, end = end, start  # модель иногда путает границы местами
         return Command(Intent.LIST, period=(start, end), item_type=_enum(ItemType, args.get("type")))
     if result.tool == "search_items":
         scope = args.get("when") if args.get("when") in ("past", "future") else None

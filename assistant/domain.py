@@ -36,7 +36,7 @@ class Item:
     status: Status = Status.OPEN
     repeat: Repeat | None = None
     remind_at: datetime | None = None  # когда отправить следующее напоминание
-    notified: bool = False  # напоминание уже ушло
+    notified: bool = False  # напоминание уже отправлено
     origin: str = "chat"  # chat или demo (загружено из csv по /demo)
     source_text: str | None = None
     id: int | None = None
@@ -69,7 +69,7 @@ class Intent(str, Enum):
 
 @dataclass
 class Command:
-    """что хочет пользователь: действие + параметры, которые вытащили из сообщения
+    """что хочет пользователь: действие + параметры, извлеченные из сообщения
 
     для UPDATE поля day/at/title это новые значения, а какую запись менять
     понимаем по ref (номер в последнем списке) или по query (описание словами)
@@ -85,9 +85,9 @@ class Command:
     query: str | None = None
     ref: int | None = None
     scope: str | None = None  # где искать: "past" в прошлом, "future" в будущем
-    text: str | None = None  # просто текстовый ответ модели (для CHAT)
+    text: str | None = None  # текстовый ответ модели (для CHAT)
 
-    # в базу кладем только то, что нужно чтобы доделать команду после уточняющего вопроса
+    # в базу сохраняем только то, что нужно, чтобы выполнить команду после уточняющего вопроса
     def to_dict(self) -> dict:
         return {
             "intent": self.intent.value,
@@ -114,7 +114,7 @@ class Command:
 
 @dataclass(frozen=True)
 class Browse:
-    """где пользователь сейчас в разделе "Все записи": на сколько недель ушел от текущей и какой фильтр"""
+    """положение в разделе "Все записи": сдвиг в неделях от текущей и выбранный фильтр"""
     offset: int = 0
     view: str = "all"  # all | task | meeting | reminder | undated | done
 

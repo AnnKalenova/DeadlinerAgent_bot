@@ -7,7 +7,7 @@ from .dates import add_months
 from .domain import Item, ItemType, Repeat
 
 UNTIMED_REMINDER_AT = time(9, 0)  # если у записи только день без времени, напоминаем в 9 утра этого дня
-_MAX_OCCURRENCES = 2000  # предохранитель, чтобы цикл по повторам не крутился бесконечно
+_MAX_OCCURRENCES = 2000  # ограничение, чтобы цикл по повторам не стал бесконечным
 
 
 def shift(moment: datetime, repeat: Repeat, times: int = 1) -> datetime:

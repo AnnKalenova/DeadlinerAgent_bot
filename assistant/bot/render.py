@@ -1,4 +1,4 @@
-"""рисует ответ ассистента для телеги: html текст и кнопки под ним. и текст для озвучки"""
+"""отрисовка ответа ассистента для Telegram: html-текст и кнопки под ним, а также текст для озвучки"""
 from __future__ import annotations
 
 from datetime import date
@@ -13,7 +13,7 @@ from ..texts import REPEAT_NAMES, TYPE_ICONS
 from .keyboards import VIEWS, ActionCb, BrowseCb, ItemCb, TimeCb
 
 MAX_LINES = 60  # в списке больше 60 строк не показываем, дальше "...и еще N"
-MAX_LENGTH = 4000  # телега не принимает сообщения длиннее 4096 символов
+MAX_LENGTH = 4000  # Telegram не принимает сообщения длиннее 4096 символов
 
 
 def render(reply: Reply, today: date) -> tuple[str, InlineKeyboardMarkup | None]:
@@ -54,7 +54,7 @@ def render(reply: Reply, today: date) -> tuple[str, InlineKeyboardMarkup | None]
             keyboard.row(*row)
 
     text = "\n\n".join(parts)
-    # если слишком длинно, режем по концу строки, чтобы не порвать html тег посередине
+    # если текст слишком длинный, обрезаем по концу строки, чтобы не разорвать html-тег
     if len(text) > MAX_LENGTH:
         text = text[:MAX_LENGTH].rsplit("\n", 1)[0] + "\n…"
     markup = keyboard.as_markup()
@@ -112,7 +112,7 @@ def speech_text(reply: Reply, today: date) -> str:
 def _entry_line(entry: Entry) -> str:
     item = entry.item
     at = f"{entry.start:%H:%M}" if entry.start and item.has_time else "  —  "
-    title = f"<s>{escape(item.title)}</s>" if item.is_done else escape(item.title)  # выполненное зачеркнуто
+    title = f"<s>{escape(item.title)}</s>" if item.is_done else escape(item.title)  # выполненные записи зачеркнуты
     repeat = " 🔁" if item.repeat else ""
     return f"<code>{at}</code> {TYPE_ICONS[item.type]} {title}{repeat}"
 
@@ -134,7 +134,7 @@ def _card_buttons(item: Item) -> list[InlineKeyboardButton]:
 
 def _browse_rows(state: Browse) -> list[list[InlineKeyboardButton]]:
     rows = []
-    # листать по неделям имеет смысл только для календаря. "без срока" и "выполненные" это просто списки
+    # листать по неделям имеет смысл только в календаре, "без срока" и "выполненные" - обычные списки
     if state.view not in ("undated", "done"):
         rows.append([
             InlineKeyboardButton(text="◀️", callback_data=BrowseCb(offset=state.offset - 1, view=state.view).pack()),

@@ -1,4 +1,4 @@
-"""все что ходит в Yandex Cloud: языковая модель, эмбеддинги и SpeechKit (голос)
+"""клиенты Yandex Cloud: языковая модель, эмбеддинги и SpeechKit (голос)
 
 модель и эмбеддинги через OpenAI-совместимый API AI Studio, SpeechKit через REST API v1.
 везде один и тот же API-ключ сервисного аккаунта
@@ -20,7 +20,7 @@ TTS_MAX_CHARS = 4900  # у API лимит 5000 символов, берем с �
 
 
 def _openai_client(api_key: str, folder_id: str, timeout: float, max_retries: int = 1) -> AsyncOpenAI:
-    # project уходит в заголовок OpenAI-Project, по нему AI Studio понимает какой каталог
+    # project передается в заголовке OpenAI-Project, по нему AI Studio определяет каталог
     return AsyncOpenAI(api_key=api_key, project=folder_id, base_url=LLM_BASE_URL,
                        timeout=timeout, max_retries=max_retries)
 
@@ -32,7 +32,7 @@ class YandexGPT:
                  temperature: float = 0.1, timeout: float = 25):
         self._client = _openai_client(api_key, folder_id, timeout)
         self._model = f"gpt://{folder_id}/{model}"
-        self._temperature = temperature  # низкая, чтобы на одну фразу отвечала одинаково
+        self._temperature = temperature  # низкая, чтобы на одну и ту же фразу модель отвечала одинаково
 
     async def chat(self, messages: list[dict], tools: list[dict]) -> ChatResult:
         response = await self._client.chat.completions.create(
@@ -57,7 +57,7 @@ class YandexEmbedder:
     """эмбеддинги текста для поиска по смыслу
 
     API берет один текст за запрос и по умолчанию не больше 10 запросов в секунду.
-    поэтому шлем параллельно, но притормаживаем, а на ответ 429 (слишком часто) пробуем еще раз
+    поэтому запросы идут параллельно, но с ограничением частоты, а при ответе 429 (слишком много запросов) повторяются
     """
 
     def __init__(self, api_key: str, folder_id: str, requests_per_second: float = 8, timeout: float = 15):
@@ -110,8 +110,8 @@ class SpeechKit:
         self._http = httpx.AsyncClient(timeout=timeout)
 
     async def recognize(self, audio: bytes) -> str:
-        """короткое аудио (до 30 сек и 1 МБ) в OGG/Opus. телега как раз в нем присылает голосовые,
-        так что ничего конвертировать не надо"""
+        """короткое аудио (до 30 секунд и 1 МБ) в OGG/Opus. в этом формате Telegram присылает голосовые,
+        поэтому конвертировать ничего не нужно"""
         response = await self._http.post(
             STT_URL, params={"lang": "ru-RU", "format": "oggopus"}, headers=self._headers, content=audio,
         )

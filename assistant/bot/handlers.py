@@ -1,6 +1,6 @@
-"""обработчики телеги: команды, кнопки меню, текст и голосовые, кнопки под сообщениями
+"""обработчики Telegram: команды, кнопки меню, текст и голосовые, кнопки под сообщениями
 
-тут почти нет логики, только достать текст, отдать ассистенту и показать что он ответил
+логики здесь почти нет: получить текст, передать ассистенту и показать ответ
 """
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ log = logging.getLogger(__name__)
 router = Router()
 
 VOICE_MAX_SECONDS = 30  # больше SpeechKit за один запрос не распознает
-# тут держим ссылки на фоновые задачи, иначе сборщик мусора может прибить их раньше времени
+# ссылки на фоновые задачи: без них Python может удалить задачу из памяти до ее завершения
 _background: set[asyncio.Task] = set()
 
 
@@ -51,7 +51,7 @@ async def send_reply(message: Message, reply: Reply, user: User, clock, speech: 
             audio = await speech.synthesize(speech_text(reply, clock().date()))
             await message.answer_voice(BufferedInputFile(audio, filename="reply.ogg"))
         except Exception as exc:
-            log.warning("Voice reply failed: %s", exc)  # текст уже ушел, так что просто пишем в лог
+            log.warning("Voice reply failed: %s", exc)  # текст уже отправлен, поэтому ошибку голоса только пишем в лог
 
 
 async def edit_reply(callback: CallbackQuery, reply: Reply, clock) -> None:
@@ -61,8 +61,8 @@ async def edit_reply(callback: CallbackQuery, reply: Reply, clock) -> None:
         await callback.message.edit_text(text, reply_markup=markup)
     except TelegramBadRequest as exc:
         if "message is not modified" in str(exc):
-            return  # нажали ту же кнопку еще раз, менять нечего, дубль сообщения не шлем
-        # сообщение слишком старое и его уже нельзя редактировать, шлем новое
+            return  # повторное нажатие той же кнопки: менять нечего, новое сообщение не отправляем
+        # сообщение слишком старое и его нельзя редактировать - отправляем новое
         await callback.message.answer(text, reply_markup=markup)
 
 
@@ -138,7 +138,7 @@ async def on_demo(message: Message, db: Storage, searcher: Searcher, settings: S
     if not items:
         await message.answer("В файле с демо-данными нет записей.")
         return
-    # эмбеддинги для поиска считаем в фоне, чтобы человек не ждал ответа
+    # эмбеддинги для поиска считаются в фоне, чтобы пользователь не ждал ответа
     task = asyncio.create_task(searcher.warm_up([item.title for item in items]))
     _background.add(task)
     task.add_done_callback(_background.discard)
@@ -190,7 +190,7 @@ async def on_voice(message: Message, bot: Bot, assistant: Assistant, user: User,
     if not text:
         await message.answer("Не расслышал. Повторите, пожалуйста.")
         return
-    await message.answer(f"🎤 <i>{escape(text)}</i>")  # показываем, что услышали, чтобы было видно если распозналось криво
+    await message.answer(f"🎤 <i>{escape(text)}</i>")  # показываем распознанный текст, чтобы было видно, если речь распознана неточно
     await send_reply(message, await assistant.handle(user.user_id, text), user, clock, speech)
 
 
@@ -202,7 +202,7 @@ async def on_text(message: Message, bot: Bot, assistant: Assistant, user: User, 
 
 @router.message()
 async def on_other(message: Message):
-    # стикеры, фото и прочее
+    # стикеры, фото и другие типы сообщений
     await message.answer("Я понимаю текст и голосовые сообщения.")
 
 
@@ -211,7 +211,7 @@ async def on_other(message: Message):
 @router.callback_query(ItemCb.filter())
 async def on_item_button(callback: CallbackQuery, callback_data: ItemCb, assistant: Assistant, user: User, clock):
     item_id, action = callback_data.item_id, callback_data.action
-    await callback.answer()  # убирает часики на кнопке
+    await callback.answer()  # убирает индикатор загрузки на кнопке
     if action == "open":
         await answer(callback.message, assistant.open_item(user.user_id, item_id), clock)
     elif action == "done":
@@ -229,11 +229,11 @@ async def on_item_button(callback: CallbackQuery, callback_data: ItemCb, assista
 @router.callback_query(TimeCb.filter())
 async def on_time_button(callback: CallbackQuery, callback_data: TimeCb, assistant: Assistant, user: User,
                          clock, speech):
-    # кнопка со временем работает так же, как если бы человек сам написал "в 15:00"
+    # кнопка со временем работает так же, как если бы пользователь сам написал "в 15:00"
     await callback.answer()
     value = f"{callback_data.value[:2]}:{callback_data.value[2:]}"
     try:
-        await callback.message.edit_reply_markup(reply_markup=None)  # убираем кнопки, чтобы не жали второй раз
+        await callback.message.edit_reply_markup(reply_markup=None)  # убираем кнопки, чтобы их не нажали повторно
     except TelegramBadRequest:
         pass
     await send_reply(callback.message, await assistant.handle(user.user_id, f"в {value}"), user, clock, speech)
@@ -260,7 +260,7 @@ async def on_cancel(callback: CallbackQuery, assistant: Assistant, user: User, c
 
 @router.error()
 async def on_error(event: ErrorEvent):
-    # все что упало и нигде не поймалось: полный текст ошибки в лог, а человеку коротко
+    # необработанные ошибки: полный текст в лог, пользователю - короткое сообщение
     log.exception("Unhandled error", exc_info=event.exception)
     message = event.update.message or (event.update.callback_query and event.update.callback_query.message)
     if message:

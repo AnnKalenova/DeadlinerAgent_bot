@@ -1,6 +1,6 @@
-"""разбор русских дат и времени из текста, и обратно - красиво написать дату для пользователя
+"""разбор русских дат и времени из текста и форматирование дат для пользователя
 
-функции разбора отдают еще и позиции найденных кусков, чтобы потом вырезать
+функции разбора возвращают еще и позиции найденных фрагментов, чтобы потом вырезать
 их из названия ("позвонить Ивану завтра в 10" -> "позвонить Ивану")
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ MONTHS_SHORT = ("янв", "фев", "мар", "апр", "мая", "июн", "и�
 WEEKDAYS = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
 WEEKDAYS_SHORT = ("пн", "вт", "ср", "чт", "пт", "сб", "вс")
 
-# дни недели во всех падежах, которые реально говорят: "в среду", "к пятнице", "до вторника"
+# дни недели в падежах, которые встречаются в речи: "в среду", "к пятнице", "до вторника"
 _WEEKDAY_FORMS = {
     0: ("понедельник", "понедельника", "понедельнику"),
     1: ("вторник", "вторника", "вторнику"),
@@ -28,18 +28,18 @@ _WEEKDAY_FORMS = {
 }
 WEEKDAY_BY_FORM = {form: wd for wd, forms in _WEEKDAY_FORMS.items() for form in forms}
 
-# числа словами, голосовые часто так и распознаются: "через два часа", "в пять вечера"
+# числа словами, распознанные голосовые часто приходят именно так: "через два часа", "в пять вечера"
 _NUMBERS = {
     "один": 1, "одну": 1, "два": 2, "две": 2, "три": 3, "четыре": 4, "пять": 5, "шесть": 6,
     "семь": 7, "восемь": 8, "девять": 9, "десять": 10, "одиннадцать": 11, "двенадцать": 12,
     "пятнадцать": 15, "двадцать": 20, "тридцать": 30, "сорок": 40, "сорок пять": 45,
 }
-_NUM_WORDS = "|".join(sorted(_NUMBERS, key=len, reverse=True))  # длинные первыми, чтоб "сорок пять" не съелось как "сорок"
+_NUM_WORDS = "|".join(sorted(_NUMBERS, key=len, reverse=True))  # длинные первыми, чтобы "сорок пять" не распознавалось как "сорок"
 _DAYPART = r"(утра|дня|вечера|ночи)"
 
-Span = tuple[int, int]  # (начало, конец) куска в тексте
+Span = tuple[int, int]  # (начало, конец) фрагмента в тексте
 
-# --- регулярки. работают по тексту в нижнем регистре, где ё уже заменена на е ---
+# --- регулярные выражения. работают по тексту в нижнем регистре, где ё уже заменена на е ---
 
 _OFFSET = re.compile(
     rf"\bчерез\s+(?:(?P<n>\d{{1,3}}|{_NUM_WORDS}|полтора|полторы)\s+)?"
@@ -85,7 +85,7 @@ _NAMED_TIMES = (
 
 @dataclass
 class When:
-    """что нашли во фразе: день, время, конец встречи и где эти куски стояли в тексте"""
+    """что найдено во фразе: день, время, конец встречи и позиции этих фрагментов в тексте"""
 
     day: date | None = None
     at: time | None = None
@@ -114,7 +114,7 @@ def _hour(hour: int, daypart: str | None) -> int:
     if daypart == "ночи" and hour == 12:
         return 0
     if daypart is None and 1 <= hour <= 6:
-        return hour + 12  # "в 3" почти всегда значит 15:00, в 3 ночи никто встречи не ставит
+        return hour + 12  # "в 3" почти всегда означает 15:00: на 3 часа ночи встречи обычно не назначают
     return hour
 
 
@@ -175,8 +175,8 @@ def _calendar_date(day: int, month: int, year: str | None, today: date, prefer_f
     try:
         found = date(full_year, month, day)
     except ValueError:
-        return None  # 31.02 и прочее, такой даты нет
-    # год не сказали: для новых записей берем ближайшую будущую дату, для поиска в прошлом - прошедшую
+        return None  # например 31.02 - такой даты нет
+    # год не указан: для новых записей берем ближайшую будущую дату, для поиска в прошлом - прошедшую
     if not year:
         if prefer_future and found < today:
             found = date(full_year + 1, month, day)
@@ -186,7 +186,7 @@ def _calendar_date(day: int, month: int, year: str | None, today: date, prefer_f
 
 
 def _vague_date(low: str, today: date) -> tuple[date, Span] | None:
-    """срок примерно: до конца недели, на следующей неделе, на выходных"""
+    """примерный срок: до конца недели, на следующей неделе, на выходных"""
     if m := _NEXT_WEEK.search(low):
         return week_start(today) + timedelta(days=7), m.span()
     if m := _END_OF_WEEK.search(low) or _THIS_WEEK.search(low):
@@ -228,7 +228,7 @@ def find_period(text: str, today: date, prefer_future: bool = True) -> tuple[dat
 # --- время ---
 
 def find_time(text: str) -> tuple[time, time | None, Span] | None:
-    """первое найденное время: (начало, конец или None, где стояло)"""
+    """первое найденное время: (начало, конец или None, позиция в тексте)"""
     low = normalize(text)
 
     # сначала "с 15 до 16:30", потом точное время, потом просто час, и в конце "утром"/"вечером"
@@ -285,7 +285,7 @@ def _find_offset(low: str, now: datetime) -> tuple[datetime | None, date | None,
 
 
 def parse_when(text: str, now: datetime, prefer_future: bool = True) -> When:
-    """достает из фразы все про дату и время. "через N минут/часов" задает сразу и день и время"""
+    """извлекает из фразы дату и время. "через N минут/часов" задает сразу и день, и время"""
     low = normalize(text)
     when = When()
 
@@ -303,7 +303,7 @@ def parse_when(text: str, now: datetime, prefer_future: bool = True) -> When:
 
     if found_time := find_time(low):
         at, end_at, span = found_time
-        # "12.11" можно понять и как дату и как время. если кусок уже ушел в дату, время из него не берем
+        # "12.11" можно понять и как дату, и как время. если фрагмент уже распознан как дата, время из него не берем
         if not any(span[0] < other[1] and other[0] < span[1] for other in when.spans):
             when.at, when.end_at = at, end_at
             when.spans.append(span)
@@ -325,8 +325,8 @@ def combine(day: date | None, at: time | None, now: datetime) -> tuple[datetime 
 
 
 def strip_spans(text: str, spans: list[Span]) -> str:
-    """вырезает из текста найденные куски с датами и временем"""
-    for start, end in sorted(spans, reverse=True):  # с конца, чтобы позиции не поехали
+    """вырезает из текста найденные фрагменты с датами и временем"""
+    for start, end in sorted(spans, reverse=True):  # с конца, чтобы позиции не сдвигались
         text = text[:start] + " " + text[end:]
     return re.sub(r"\s+", " ", text).strip()
 
@@ -365,7 +365,7 @@ def day_header(day: date, today: date) -> str:
 
 
 def period_title(start: date, end: date, today: date) -> str:
-    """название периода, которое встает после "на": "сегодня", "эту неделю (26 окт – 1 ноя)" """
+    """название периода после предлога "на": "сегодня", "эту неделю (26 окт – 1 ноя)" """
     if start == end:
         relative = {0: "сегодня", 1: "завтра", 2: "послезавтра"}.get((start - today).days)
         return relative or f"{start.day} {MONTHS[start.month - 1]}"
