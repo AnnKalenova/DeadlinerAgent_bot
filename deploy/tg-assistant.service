@@ -1,0 +1,35 @@
+# бот Дедлайнер. это шаблон: install.sh подставляет пути и кладет его в /etc/systemd/system.
+# там руками не править, при следующей установке перезапишется
+[Unit]
+Description=Deadliner Telegram bot (tg_assistant)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@USER@
+WorkingDirectory=@BASE@/current
+Environment=PYTHONUNBUFFERED=1
+Environment=DB_PATH=@BASE@/shared/data/assistant.db
+Environment=LOG_PATH=@BASE@/shared/logs/bot.log
+ExecStart=@BASE@/current/.venv/bin/python @BASE@/current/main.py
+Restart=always
+RestartSec=10
+TimeoutStopSec=20
+
+# бот может писать только в базу и логи, вся остальная система для него только на чтение
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ReadWritePaths=@BASE@/shared/data @BASE@/shared/logs
+
+[Install]
+WantedBy=multi-user.target
